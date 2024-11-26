@@ -16,6 +16,7 @@ import (
 type dumpFunc func(reflect.Value, Writer)
 
 type options struct {
+	omitEmptyFields  bool
 	exportedOnly     bool
 	indentSize       int
 	uintFormat       UintFormat
@@ -25,6 +26,7 @@ type options struct {
 
 func newDefaultOptions() *options {
 	return &options{
+		omitEmptyFields:  false,
 		exportedOnly:     false,
 		indentSize:       2,
 		uintFormat:       DecimalUint,
@@ -42,6 +44,7 @@ type dumper struct {
 	cachedZeroValues map[reflect.Type]string
 	clonePool        *sync.Pool
 	// options
+	omitEmptyFields  bool
 	exportedOnly     bool
 	uintFormat       UintFormat
 	convertibleTypes map[reflect.Type]dumpFunc
@@ -73,6 +76,7 @@ func newDataDumper(obj interface{}, optFuncs ...OptionFunc) *dumper {
 	ret.visitPointers = make(map[uintptr]bool)
 	ret.cachedZeroValues = zeroPrimitives
 	ret.clonePool = clonePool
+	ret.omitEmptyFields = opts.omitEmptyFields
 	ret.exportedOnly = opts.exportedOnly
 	ret.uintFormat = opts.uintFormat
 	ret.convertibleTypes = opts.convertibleTypes
@@ -87,6 +91,7 @@ func (d *dumper) clone(obj interface{}) *dumper {
 	child.visitPointers = d.visitPointers
 	child.cachedZeroValues = d.cachedZeroValues
 	child.clonePool = d.clonePool
+	child.omitEmptyFields = d.omitEmptyFields
 	child.exportedOnly = d.exportedOnly
 	child.uintFormat = d.uintFormat
 	child.convertibleTypes = d.convertibleTypes
@@ -292,6 +297,9 @@ func (d *dumper) writeStruct() {
 			fieldVal := d.value.Field(idx)
 			if !isExported(field) && fieldVal.CanAddr() {
 				fieldVal = getUnexportedField(fieldVal)
+			}
+			if d.omitEmptyFields && fieldVal.IsZero() {
+				continue
 			}
 			d.indentedPrintf("%s: %s,\n", field.Name, dumpclone(d, fieldVal))
 		}
