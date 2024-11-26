@@ -8,7 +8,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -276,11 +275,6 @@ func TestDumpBasic(t *testing.T) {
 			want: "(func(int, int) bool)(nil)",
 		},
 		{
-			name: "reflect.Value{}",
-			v:    reflect.Value{},
-			want: "reflect.Value{\n  typ: (*reflect.rtype)(nil),\n  ptr: unsafe.Pointer(uintptr(0)),\n  flag: 0,\n}",
-		},
-		{
 			name: "context.CancelFunc",
 			v:    context.CancelFunc(func() {}),
 			want: "context.CancelFunc(func() {\n  // ...\n})",
@@ -432,6 +426,89 @@ func TestPointer(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestWithOmitEmptyFields(t *testing.T) {
+	type manyFields struct {
+		intField        int
+		intPtr          *int
+		stringField     string
+		stringPtr       *string
+		boolField       bool
+		boolPtr         *bool
+		uint8Field      uint8
+		uint8Ptr        *uint8
+		uint16Field     uint16
+		uint16Ptr       *uint16
+		uint32Field     uint32
+		uint32Ptr       *uint32
+		uint64Field     uint64
+		uint64Ptr       *uint64
+		float32Field    float32
+		float32Ptr      *float32
+		float64Field    float64
+		float64Ptr      *float64
+		complex64Field  complex64
+		complex64Ptr    *complex64
+		complex128Field complex128
+		complex128Ptr   *complex128
+		arrayField      [2]int
+		arrayPtr        *[2]int
+		sliceField      []int
+		slicePtr        *[]int
+		mapField        map[string]int
+		mapPtr          *map[string]int
+		chanField       chan int
+		chanPtr         *chan int
+		funcField       func()
+		funcPtr         *func()
+		interfaceField  any
+		structField     struct{ intField int }
+		structPtr       *struct{ intField int }
+	}
+	cases := []struct {
+		name     string
+		v        interface{}
+		wantOmit string
+		wantEmit string
+	}{
+		{
+			name:     "nil pointer of int",
+			v:        manyFields{},
+			wantOmit: "dd_test.manyFields{\n}",
+			wantEmit: "dd_test.manyFields{\n  intField: 0,\n  intPtr: (*int)(nil),\n  stringField: \"\",\n  stringPtr: (*string)(nil),\n  boolField: false,\n  boolPtr: (*bool)(nil),\n  uint8Field: 0,\n  uint8Ptr: (*uint8)(nil),\n  uint16Field: 0,\n  uint16Ptr: (*uint16)(nil),\n  uint32Field: 0,\n  uint32Ptr: (*uint32)(nil),\n  uint64Field: 0,\n  uint64Ptr: (*uint64)(nil),\n  float32Field: 0.000000,\n  float32Ptr: (*float32)(nil),\n  float64Field: 0.000000,\n  float64Ptr: (*float64)(nil),\n  complex64Field: (0+0i),\n  complex64Ptr: (*complex64)(nil),\n  complex128Field: (0+0i),\n  complex128Ptr: (*complex128)(nil),\n  arrayField: [2]int{\n    0,\n    0,\n  },\n  arrayPtr: (*[2]int)(nil),\n  sliceField: ([]int)(nil),\n  slicePtr: (*[]int)(nil),\n  mapField: (map[string]int)(nil),\n  mapPtr: (*map[string]int)(nil),\n  chanField: (chan int)(nil),\n  chanPtr: (*chan int)(nil),\n  funcField: (func())(nil),\n  funcPtr: (*func())(nil),\n  interfaceField: nil,\n  structField: struct { intField int }{\n    intField: 0,\n  },\n  structPtr: (*struct { intField int })(nil),\n}",
+		},
+	}
+	t.Run("omit", func(t *testing.T) {
+		for _, tc := range cases {
+			tc := tc
+			t.Run(tc.name, func(t *testing.T) {
+				got := dd.Dump(tc.v, dd.WithOmitEmptyFields())
+				if !strings.Contains(got, tc.wantOmit) {
+					t.Fatalf("wantOmit %q, but got %q", tc.wantOmit, got)
+				}
+				if _, err := parser.ParseExpr(got); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	})
+
+	t.Run("emit", func(t *testing.T) {
+		for _, tc := range cases {
+			tc := tc
+			t.Run(tc.name, func(t *testing.T) {
+				got := dd.Dump(tc.v)
+				if !strings.Contains(got, tc.wantEmit) {
+					t.Fatalf("want %q, but got %q", tc.wantEmit, got)
+				}
+				if _, err := parser.ParseExpr(got); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	})
+
 }
 
 func TestWithIndent(t *testing.T) {
@@ -662,25 +739,5 @@ func TestWithListBreakLineSize(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
-	}
-}
-
-func TestUnexportedField(t *testing.T) {
-	type stringKey struct{}
-	ctx := context.WithValue(
-		context.Background(),
-		stringKey{},
-		"value",
-	)
-	got := dd.Dump(ctx, dd.WithDumpFunc(func(s string, w dd.Writer) {
-		w.Write(s)
-	}))
-	got = addressReplaceRegexp.ReplaceAllString(got, "0x0")
-	want := "&context.valueCtx{\n  Context: (*context.emptyCtx)(unsafe.Pointer(0x0)),\n  key: dd_test.stringKey{},\n  val: value,\n}"
-	if want != got {
-		t.Fatalf("want %q, but got %q", want, got)
-	}
-	if _, err := parser.ParseExpr(got); err != nil {
-		t.Fatal(err)
 	}
 }

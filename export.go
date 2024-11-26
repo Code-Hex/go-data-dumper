@@ -62,3 +62,9 @@ func WithListBreakLineSize(typ interface{}, size int) OptionFunc {
 		o.listGroupingSize[tmp] = size
 	}
 }
+
+func WithOmitEmptyFields() OptionFunc {
+	return func(o *options) {
+		o.omitEmptyFields = true
+	}
+}
